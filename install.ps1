@@ -47,6 +47,11 @@ Leave %USERPROFILE%\.wslgconfig unchanged.
 Do not restart the distribution at the end. WSLg picks up the icons and its
 options only when it restarts.
 
+.PARAMETER SkipBlur
+Do not install the blur companion. Under WSLg, Windows' compositor draws the
+background blur Cutefish's applications ask for; the companion, a script
+started at logon from the Startup folder, asks it to for their windows.
+
 .PARAMETER ShutdownIfNeeded
 If WSLg comes back from the restart without its shared memory, in which state
 it shows empty windows, run wsl --shutdown without asking. That stops every
@@ -85,6 +90,7 @@ param(
     [switch] $NonInteractive = ($env:CUTEFISH_WSLG_NONINTERACTIVE -eq '1'),
     [switch] $SkipWslgConfig,
     [switch] $NoRestart,
+    [switch] $SkipBlur,
     [switch] $ShutdownIfNeeded,
     [string] $Repository = 'https://github.com/trojaner/cutefish-wslg.git',
     [string] $Ref = 'main'
@@ -400,6 +406,41 @@ function Assert-WslgSharedMemory([string] $Name) {
     }
 }
 
+# Installs windows/cutefish-wslg-blur.ps1 from the clone in the distribution,
+# starts it at logon from the Startup folder, and (re)starts it now.
+function Install-BlurCompanion {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string] $Name)
+    $source = "\\wsl.localhost\$Name\var\lib\cutefish-wslg\src\windows\cutefish-wslg-blur.ps1"
+    if (-not (Test-Path -LiteralPath $source)) {
+        throw "The blur companion is missing from $Name ($source)."
+    }
+    $dir = Join-Path $env:LOCALAPPDATA 'cutefish-wslg'
+    $script = Join-Path $dir 'cutefish-wslg-blur.ps1'
+    $shortcut = Join-Path ([Environment]::GetFolderPath('Startup')) 'cutefish-wslg-blur.lnk'
+    if (-not $PSCmdlet.ShouldProcess($shortcut, 'Install the blur companion and start it at logon')) { return }
+
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+        Where-Object { $_.CommandLine -and $_.CommandLine.Contains($script) } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Copy-Item -LiteralPath $source -Destination $script -Force
+
+    # conhost --headless runs it without a console window.
+    $conhost = Join-Path $env:WINDIR 'System32\conhost.exe'
+    $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = "--headless `"$powershell`" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`""
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut($shortcut)
+    $link.TargetPath = $conhost
+    $link.Arguments = $arguments
+    $link.WorkingDirectory = $dir
+    $link.Description = 'Blurs the background of Cutefish windows under WSLg'
+    $link.Save()
+    Start-Process -FilePath $conhost -ArgumentList $arguments -WorkingDirectory $dir
+    Write-Host "  Installed $script; it starts at logon from $shortcut."
+}
+
 function Get-RepositorySource([string] $Name, [string] $Repository) {
     if (Test-Path -LiteralPath $Repository) {
         return 'file://' + (ConvertTo-WslPath $Name (Resolve-Path -LiteralPath $Repository).Path)
@@ -488,6 +529,13 @@ if (-not $SkipWslgConfig) {
 
 Write-Step "Building and installing Cutefish in $Distro ($Channel channel)"
 Install-Cutefish -Name $Distro -Source (Get-RepositorySource $Distro $Repository) -Ref $Ref -Channel $Channel
+
+if (-not $SkipBlur) {
+    Write-Step 'Installing the blur companion'
+    if (Confirm-Step 'Blur the background of Cutefish windows? A script that starts at logon asks Windows to.') {
+        Install-BlurCompanion $Distro
+    }
+}
 
 if (-not $NoRestart) {
     if (Confirm-Step "Restart $Distro now, so WSLg picks up the icons and options? Its open windows close.") {

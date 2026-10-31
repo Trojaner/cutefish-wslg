@@ -4,7 +4,8 @@ Runs the [Cutefish](https://github.com/cutefishos) desktop's applications on
 Windows through [WSLg](https://github.com/microsoft/wslg): Files, Terminal,
 Text Editor, Settings, System Monitor and Calculator open as ordinary Windows
 windows, with their own icons in the taskbar and Start menu, the clipboard
-shared with Windows, and the display scale of each monitor.
+shared with Windows, the display scale of each monitor, and the background
+blur Cutefish's windows ask for, drawn by Windows.
 
 Cutefish's applications do not start under WSLg as released: its toolkit
 requires a Wayland protocol WSLg's compositor lacks. This repository carries
@@ -48,6 +49,7 @@ irm https://raw.githubusercontent.com/trojaner/cutefish-wslg/main/install.ps1 | 
 | `-NonInteractive` | `CUTEFISH_WSLG_NONINTERACTIVE=1` | Never prompt |
 | `-SkipWslgConfig` | | Leave `%USERPROFILE%\.wslgconfig` alone |
 | `-NoRestart` | | Do not restart the distribution at the end |
+| `-SkipBlur` | | Do not install the blur companion |
 | `-ShutdownIfNeeded` | | Run `wsl --shutdown` without asking if WSLg restarts without its shared memory (see [Known limitations](#known-limitations)) |
 | `-Repository`, `-Ref` | | Install from another clone, branch or tag |
 
@@ -96,6 +98,16 @@ On Windows, these options in `%USERPROFILE%\.wslgconfig`, under
 | `WESTON_RDPRAIL_SHELL_BLEND_OVERLAY_ICON_APPLIST=false` | No penguin badge over the Start menu icons |
 | `WESTON_RDPRAIL_SHELL_BLEND_OVERLAY_ICON_TASKBAR=false` | No penguin badge over the taskbar icons |
 
+And the blur companion, [`windows/cutefish-wslg-blur.ps1`](windows/cutefish-wslg-blur.ps1),
+copied to `%LOCALAPPDATA%\cutefish-wslg` and started at logon by
+`cutefish-wslg-blur.lnk` in your Startup folder, where **Settings > Apps >
+Startup** can turn it off. Under WSLg each Linux window is a Windows window
+with the Windows desktop behind it, which neither the application nor WSLg
+can see, so Windows' compositor draws the blur: the companion watches for
+WSLg's windows and gives those of Cutefish applications a blurred background,
+Windows' rounded corners, which clip the blur, and no border line. It leaves
+other Linux applications' windows alone.
+
 ## Update and uninstall
 
 Run the installer again to rebuild, for instance with `-Channel nightly` for
@@ -108,7 +120,14 @@ wsl -d <distro> -u root -- /var/lib/cutefish-wslg/src/linux/install.sh --uninsta
 ```
 
 then remove the options above from `%USERPROFILE%\.wslgconfig` if no other
-distribution needs them. A distribution created with `-NewDistro` goes with
+distribution needs them, and the blur companion:
+
+```powershell
+Remove-Item "$([Environment]::GetFolderPath('Startup'))\cutefish-wslg-blur.lnk"
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object CommandLine -like '*cutefish-wslg-blur*' | ForEach-Object { Stop-Process -Id $_.ProcessId }
+Remove-Item -Recurse "$env:LOCALAPPDATA\cutefish-wslg"
+```
+ A distribution created with `-NewDistro` goes with
 `wsl --unregister <name>`.
 
 ## Known limitations
@@ -119,9 +138,10 @@ distribution needs them. A distribution created with `-NewDistro` goes with
   window stays sharp.
 - **No drag and drop** between Windows and Linux applications; WSLg does not
   support it. Copy and paste works both ways.
-- **Translucent areas show what is behind them.** Some applications, such as
-  the Calculator's display, draw over a background blur that Cutefish's own
-  compositor provides and WSLg does not.
+- **The blur is Windows'.** Windows draws it, with its own blur and Windows 11's
+  corner radius, behind the whole window; its translucent parts, such as the
+  Calculator's display, show it. A window looks unblurred for a moment as it
+  opens.
 - **One systemd distribution with a user session at a time.** WSL's
   distributions share one cgroup tree, so a second distribution running
   systemd fails to start the user session of the same UID, and its
