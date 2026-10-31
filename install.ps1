@@ -384,13 +384,12 @@ echo unknown
     return (Invoke-WslScript -Name $Name -Script $script -Capture | Select-Object -Last 1).Trim()
 }
 
-function Assert-WslgSharedMemory([string] $Name) {
+function Assert-WslgSharedMemory([string] $Name, [bool] $Shutdown) {
     $state = Test-WslgSharedMemory $Name
     if ($state -ne '0') { return }
     Write-Warning "WSLg restarted without its shared memory, so $Name's windows would stay empty; restarting all of WSL fixes it."
     $others = @(Invoke-Wsl --list --running --quiet | ForEach-Object { $_.Trim() } |
         Where-Object { $_ -and $_ -ne $Name })
-    $shutdown = $ShutdownIfNeeded
     if (-not $shutdown -and -not $NonInteractive) {
         $what = if ($others) { "It also stops $($others -join ', ')." } else { 'No other distribution is running.' }
         $shutdown = Confirm-Step "Run wsl --shutdown now? $what"
@@ -541,7 +540,7 @@ if (-not $NoRestart) {
     if (Confirm-Step "Restart $Distro now, so WSLg picks up the icons and options? Its open windows close.") {
         & wsl.exe --terminate $Distro | Out-Null
         Write-Host "  Restarted $Distro."
-        Assert-WslgSharedMemory $Distro
+        Assert-WslgSharedMemory $Distro $ShutdownIfNeeded.IsPresent
     }
 }
 
