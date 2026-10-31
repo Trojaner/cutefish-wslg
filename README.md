@@ -154,9 +154,12 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\cutefish-wslg"
   `rdp_allocate_shared_memory: Failed to open ... Input/output error` in its
   `/mnt/wslg/weston.log`: WSLg lost its shared memory and its fallback draws
   nothing ([microsoft/WSL#40618](https://github.com/microsoft/WSL/issues/40618)).
-  `wsl --shutdown` brings it back. Restarting one distribution can bring it
-  about, so the installer checks after its restart and offers the shutdown,
-  or runs it with `-ShutdownIfNeeded`.
+  `wsl --shutdown` brings it back. It tends to follow a restart of the
+  distribution within a running WSL, which WSL does on its own 15 seconds
+  after the last of its sessions ends, so the installer checks after its own
+  restart and offers the shutdown, or runs it with `-ShutdownIfNeeded`.
+  Keeping distributions running avoids most of these restarts: set
+  `instanceIdleTimeout=-1` under `[general]` in `%USERPROFILE%\.wslconfig`.
 
 ## How it works
 
