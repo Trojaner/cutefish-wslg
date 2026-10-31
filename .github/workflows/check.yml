@@ -1,0 +1,41 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck linux/install.sh linux/cutefish-wslg-icons
+
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $issues = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Warning,Error -ExcludeRule PSAvoidUsingWriteHost
+          $issues | Format-Table -AutoSize
+          if ($issues) { exit 1 }
+
+  patches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: The patches apply to the pinned upstream commits
+        run: |
+          for dir in patches/*/; do
+            project="$(basename "$dir")"
+            git -C "upstream/$project" -c user.name=ci -c user.email=ci@localhost am "$PWD/$dir"*.patch
+          done

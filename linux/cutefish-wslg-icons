@@ -1,0 +1,33 @@
+#!/bin/sh
+# Renders the Cutefish theme icon of every Cutefish application into
+# /usr/share/pixmaps, where WSLg looks for the icons of the Windows taskbar
+# and Start menu; it does not read icon themes. Run as root after the
+# applications change; WSLg picks the icons up when the distribution
+# restarts (wsl --terminate <distro>).
+set -eu
+
+theme=/usr/share/icons/Cutefish
+pixmaps=/usr/share/pixmaps
+manifest=/var/lib/cutefish-wslg/pixmaps
+
+mkdir -p "$(dirname "$manifest")"
+touch "$manifest"
+for desktop in /usr/share/applications/cutefish-*.desktop; do
+    [ -f "$desktop" ] || continue
+    icon=$(sed -n 's/^Icon=//p' "$desktop" | head -n 1)
+    case "$icon" in ''|/*) continue ;; esac
+    svg="$theme/apps/scalable/$icon.svg"
+    [ -f "$svg" ] || svg=$(find "$theme/apps" -name "$icon.svg" 2>/dev/null | sort | tail -n 1)
+    [ -n "$svg" ] && [ -f "$svg" ] || continue
+    png="$pixmaps/$icon.png"
+    # Leaves alone an icon some package installed under the same name.
+    if [ -e "$png" ] && dpkg -S "$png" >/dev/null 2>&1; then
+        continue
+    fi
+    if [ ! -f "$png" ] || [ "$svg" -nt "$png" ]; then
+        rsvg-convert -w 256 -h 256 -o "$png.tmp" "$svg"
+        mv "$png.tmp" "$png"
+        echo "rendered $png"
+    fi
+    grep -qxF "$png" "$manifest" || echo "$png" >> "$manifest"
+done

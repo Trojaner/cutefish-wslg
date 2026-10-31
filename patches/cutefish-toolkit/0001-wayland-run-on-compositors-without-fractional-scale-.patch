@@ -1,0 +1,203 @@
+From 16ae4317f750ab94a4cdc879a98f00682aa5b4da Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Enes=20Sad=C4=B1k=20=C3=96zbek?=
+ <1809172+Trojaner@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 17:49:57 +0300
+Subject: [PATCH] wayland: run on compositors without fractional-scale-v1
+
+The toolkit refused to start unless the compositor offered
+wp_fractional_scale_manager_v1, which compositors such as WSLg's Weston
+do not. Without it, windows now follow the integer wl_output.scale of
+the outputs they are on, the largest when they span several, and are
+told again when they move between outputs or an output's scale changes.
+
+The buffer is still sized through the viewport, as with fractional
+scaling, so nothing changes where fractional-scale-v1 is offered.
+---
+ src/wayland/connection.cpp    | 29 ++++++++++++++++++++++++--
+ src/wayland/connection.h      |  9 +++++++++
+ src/wayland/shell_surface.cpp | 38 ++++++++++++++++++++++++++++-------
+ src/wayland/shell_surface.h   |  5 +++++
+ 4 files changed, 72 insertions(+), 9 deletions(-)
+
+diff --git a/src/wayland/connection.cpp b/src/wayland/connection.cpp
+index 87a130f..eae64cc 100644
+--- a/src/wayland/connection.cpp
++++ b/src/wayland/connection.cpp
+@@ -183,9 +183,19 @@ struct ConnectionListeners
+         auto* self = static_cast<Connection*>(data);
+         if (self->onOutputsChanged)
+             self->onOutputsChanged();
++        // A copy: a surface told may go away.
++        for (ShellSurface* shell : std::vector<ShellSurface*>(self->m_scaleWatchers))
++            shell->updateOutputScale();
+     }
+ 
+-    static void outputScale(void*, wl_output*, int32_t) {}
++    static void outputScale(void* data, wl_output* wlOutput, int32_t factor)
++    {
++        auto* self = static_cast<Connection*>(data);
++        for (Connection::Output& output : self->m_outputs) {
++            if (output.output == wlOutput)
++                output.scale = std::max(1, factor);
++        }
++    }
+ 
+     static void xdgOutputPosition(void* data, zxdg_output_v1* xdgOutput, int32_t x, int32_t y)
+     {
+@@ -630,6 +640,20 @@ SizeF Connection::outputSize(wl_output* output) const
+     return {};
+ }
+ 
++int32_t Connection::outputScale(wl_output* output) const
++{
++    for (const Output& entry : m_outputs) {
++        if (entry.output == output)
++            return entry.scale;
++    }
++    return 1;
++}
++
++void Connection::watchScale(ShellSurface* shell)
++{
++    m_scaleWatchers.push_back(shell);
++}
++
+ SizeF Connection::primaryOutputSize() const
+ {
+     return m_outputs.empty() ? SizeF{} : m_outputs.front().logicalSize;
+@@ -725,7 +749,7 @@ bool Connection::initialize()
+     wl_display_roundtrip(m_display);
+     wl_display_roundtrip(m_display);
+ 
+-    if (!m_compositor || !m_wmBase || !m_viewporter || !m_fractionalScaleManager) {
++    if (!m_compositor || !m_wmBase || !m_viewporter) {
+         fprintf(stderr, "cutefish-toolkit: the compositor lacks a required global\n");
+         return false;
+     }
+@@ -980,6 +1004,7 @@ void Connection::forget(ShellSurface* shell)
+         if (pending.shell == shell)
+             pending.shell = nullptr;
+     }
++    std::erase(m_scaleWatchers, shell);
+     if (m_pointerFocus == shell)
+         m_pointerFocus = nullptr;
+     std::erase_if(m_touchFocus, [shell](const auto& point) { return point.second == shell; });
+diff --git a/src/wayland/connection.h b/src/wayland/connection.h
+index ce354fb..4c03b6d 100644
+--- a/src/wayland/connection.h
++++ b/src/wayland/connection.h
+@@ -158,6 +158,11 @@ public:
+ 
+     // An output's logical size, as xdg-output gives it; empty until known.
+     SizeF outputSize(wl_output* output) const;
++    // wl_output.scale of an output; 1 for one not known.
++    int32_t outputScale(wl_output* output) const;
++    // Without fractional-scale-v1: the surface is told when an output's
++    // scale changes, until it is forgotten.
++    void watchScale(ShellSurface* shell);
+     // The first output's, for a window that is on none yet.
+     SizeF primaryOutputSize() const;
+ 
+@@ -243,8 +248,12 @@ private:
+         std::string outputName;
+         // The current mode's.
+         SizeF pixelSize;
++        // wl_output.scale, what surfaces go by without fractional-scale-v1.
++        int32_t scale = 1;
+     };
+     std::vector<Output> m_outputs;
++    // Surfaces that follow wl_output.scale, told when an output's changes.
++    std::vector<ShellSurface*> m_scaleWatchers;
+     struct WorkArea
+     {
+         RectF area;
+diff --git a/src/wayland/shell_surface.cpp b/src/wayland/shell_surface.cpp
+index b3f4f81..db8e3d4 100644
+--- a/src/wayland/shell_surface.cpp
++++ b/src/wayland/shell_surface.cpp
+@@ -27,12 +27,16 @@ struct ShellSurfaceListeners
+ {
+     static void surfaceEnter(void* data, wl_surface*, wl_output* output)
+     {
+-        static_cast<ShellSurface*>(data)->m_outputs.push_back(output);
++        auto* self = static_cast<ShellSurface*>(data);
++        self->m_outputs.push_back(output);
++        self->updateOutputScale();
+     }
+ 
+     static void surfaceLeave(void* data, wl_surface*, wl_output* output)
+     {
+-        std::erase(static_cast<ShellSurface*>(data)->m_outputs, output);
++        auto* self = static_cast<ShellSurface*>(data);
++        std::erase(self->m_outputs, output);
++        self->updateOutputScale();
+     }
+ 
+     static void surfaceConfigure(void* data, xdg_surface*, uint32_t serial)
+@@ -329,10 +333,29 @@ void ShellSurface::createSurface()
+     wl_surface_add_listener(m_surface, &ShellSurfaceListeners::surface, this);
+ 
+     m_viewport = wp_viewporter_get_viewport(m_connection.viewporter(), m_surface);
+-    m_fractionalScale = wp_fractional_scale_manager_v1_get_fractional_scale(
+-        m_connection.fractionalScaleManager(), m_surface);
+-    wp_fractional_scale_v1_add_listener(m_fractionalScale, &ShellSurfaceListeners::fractionalScale,
+-                                        this);
++    // Without fractional-scale-v1 the scale is the largest wl_output.scale
++    // of the outputs the surface is on.
++    if (m_connection.fractionalScaleManager()) {
++        m_fractionalScale = wp_fractional_scale_manager_v1_get_fractional_scale(
++            m_connection.fractionalScaleManager(), m_surface);
++        wp_fractional_scale_v1_add_listener(m_fractionalScale, &ShellSurfaceListeners::fractionalScale,
++                                            this);
++    } else {
++        m_connection.watchScale(this);
++    }
++}
++
++void ShellSurface::updateOutputScale()
++{
++    if (m_fractionalScale)
++        return;
++    int32_t scale = 1;
++    for (wl_output* output : m_outputs)
++        scale = std::max(scale, m_connection.outputScale(output));
++    if (scale == m_outputScale)
++        return;
++    m_outputScale = scale;
++    m_delegate->scaleChanged(scale);
+ }
+ 
+ void ShellSurface::createXdgSurface()
+@@ -364,7 +387,8 @@ ShellSurface::~ShellSurface()
+         cutefish_status_item_v1_destroy(m_statusItem);
+     if (m_xdgSurface)
+         xdg_surface_destroy(m_xdgSurface);
+-    wp_fractional_scale_v1_destroy(m_fractionalScale);
++    if (m_fractionalScale)
++        wp_fractional_scale_v1_destroy(m_fractionalScale);
+     wp_viewport_destroy(m_viewport);
+     wl_surface_destroy(m_surface);
+     m_connection.flush();
+diff --git a/src/wayland/shell_surface.h b/src/wayland/shell_surface.h
+index 8c5bb63..96160b8 100644
+--- a/src/wayland/shell_surface.h
++++ b/src/wayland/shell_surface.h
+@@ -143,6 +143,9 @@ public:
+     // The logical size of the output the surface is on, its parent's while it
+     // is on none, or the first output's.
+     SizeF outputSize() const;
++    // Without fractional-scale-v1: tells the delegate the largest
++    // wl_output.scale of the outputs the surface is on, when it changed.
++    void updateOutputScale();
+ 
+     // The initial commit, without a buffer; the compositor answers with a configure.
+     void map();
+@@ -211,6 +214,8 @@ private:
+     ShellSurface* m_parent = nullptr;
+     // The outputs the surface is on, the first entered first.
+     std::vector<wl_output*> m_outputs;
++    // The scale last told without fractional-scale-v1.
++    int32_t m_outputScale = 1;
+     // The request of the same name hides the type in C++.
+     std::unordered_set<struct wp_presentation_feedback*> m_feedbacks;
+ 

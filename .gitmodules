@@ -1,0 +1,34 @@
+[submodule "upstream/cutefish-toolkit"]
+	path = upstream/cutefish-toolkit
+	url = https://github.com/cutefishos/cutefish-toolkit.git
+[submodule "upstream/cutefish-framework"]
+	path = upstream/cutefish-framework
+	url = https://github.com/cutefishos/cutefish-framework.git
+[submodule "upstream/icons"]
+	path = upstream/icons
+	url = https://github.com/cutefishos/icons.git
+	ignore = dirty
+[submodule "upstream/wallpapers"]
+	path = upstream/wallpapers
+	url = https://github.com/cutefishos/wallpapers.git
+[submodule "upstream/calculator"]
+	path = upstream/calculator
+	url = https://github.com/cutefishos/calculator.git
+[submodule "upstream/filemanager"]
+	path = upstream/filemanager
+	url = https://github.com/cutefishos/filemanager.git
+[submodule "upstream/settings"]
+	path = upstream/settings
+	url = https://github.com/cutefishos/settings.git
+[submodule "upstream/system-monitor"]
+	path = upstream/system-monitor
+	url = https://github.com/cutefishos/system-monitor.git
+[submodule "upstream/terminal"]
+	path = upstream/terminal
+	url = https://github.com/cutefishos/terminal.git
+[submodule "upstream/text-editor"]
+	path = upstream/text-editor
+	url = https://github.com/cutefishos/text-editor.git
+[submodule "upstream/packaging"]
+	path = upstream/packaging
+	url = https://github.com/cutefishos/packaging.git
