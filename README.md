@@ -129,6 +129,15 @@ distribution needs them. A distribution created with `-NewDistro` goes with
 - **Empty windows after Explorer restarts.** WSLg's remote-application client
   stops drawing windows when Explorer restarts; `wsl --terminate <distro>`
   brings them back.
+- **Empty windows from every Linux application** in a distribution, with
+  `rdp_allocate_shared_memory: Failed to open ... Input/output error` in its
+  `/mnt/wslg/weston.log`: WSLg lost its shared memory and its fallback draws
+  nothing ([microsoft/WSL#40618](https://github.com/microsoft/WSL/issues/40618)).
+  `wsl --shutdown` brings it back.
+- **Software rendering on Ubuntu 26.04.** Its Mesa no longer picks WSL's
+  GPU driver on its own, so applications render with llvmpipe; fine for these
+  applications. To use the GPU, start them with `GALLIUM_DRIVER=d3d12`, or set
+  that in the distribution's `/etc/environment`.
 
 ## How it works
 
