@@ -137,18 +137,22 @@ distribution needs them. A distribution created with `-NewDistro` goes with
   `wsl --shutdown` brings it back. Restarting one distribution can bring it
   about, so the installer checks after its restart and offers the shutdown,
   or runs it with `-ShutdownIfNeeded`.
-- **Software rendering on Ubuntu 26.04.** Its Mesa no longer picks WSL's
-  GPU driver on its own, so applications render with llvmpipe; fine for these
-  applications. To use the GPU, start them with `GALLIUM_DRIVER=d3d12`, or set
-  that in the distribution's `/etc/environment`.
 
 ## How it works
 
-The toolkit refuses to start without `wp_fractional_scale_manager_v1`, which
-WSLg's Weston does not offer. [The patch](patches/cutefish-toolkit) makes
-fractional scaling optional and has windows follow the integer
-`wl_output.scale` of the monitors they are on instead, changing as they move
-between monitors. Where fractional scaling is offered, nothing changes.
+Two [patches to the toolkit](patches/cutefish-toolkit) make the applications
+run well under WSLg:
+
+1. The toolkit refuses to start without `wp_fractional_scale_manager_v1`,
+   which WSLg's Weston does not offer. The patch makes fractional scaling
+   optional and has windows follow the integer `wl_output.scale` of the
+   monitors they are on instead, changing as they move between monitors.
+   Where fractional scaling is offered, nothing changes.
+2. Mesa reaches WSL's GPU through its `d3d12` driver, but without a DRM
+   device recent Mesa, as in Ubuntu 26.04, does not pick it and renders in
+   software. Where WSL's `/dev/dxg` exists, the toolkit sets
+   `GALLIUM_DRIVER=d3d12` before starting EGL, unless it is set already; set
+   it to `llvmpipe` to render in software.
 
 [`install.ps1`](install.ps1) prepares the distribution and WSLg, then runs
 [`linux/install.sh`](linux/install.sh) in the distribution as root. That

@@ -1,0 +1,46 @@
+From 3d8e4fb0be7d83663e0358d8ff62b92df5e69381 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Enes=20Sad=C4=B1k=20=C3=96zbek?=
+ <1809172+Trojaner@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 20:04:48 +0300
+Subject: [PATCH 2/2] gpu: render with WSL's GPU
+
+Under WSL, Mesa reaches the GPU through its d3d12 driver, but with no DRM
+device its loader does not choose that driver and the toolkit renders in
+software with llvmpipe. Where WSL's /dev/dxg is present, set
+GALLIUM_DRIVER=d3d12 before EGL starts, unless it is set already.
+---
+ src/gpu/egl_context.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/gpu/egl_context.cpp b/src/gpu/egl_context.cpp
+index 72dd473..060ab5d 100644
+--- a/src/gpu/egl_context.cpp
++++ b/src/gpu/egl_context.cpp
+@@ -59,8 +59,19 @@ static EGLConfig chooseConfig(EGLDisplay display)
+     return configs.front();
+ }
+ 
++// Mesa reaches WSL's GPU through its d3d12 driver, but with no DRM device to
++// go by its loader does not pick it and falls back to software rendering.
++// /dev/dxg is WSL's GPU; a GALLIUM_DRIVER set by the user stays. Set before
++// any thread that could read the environment starts.
++static void preferWslGpu()
++{
++    if (access("/dev/dxg", F_OK) == 0)
++        setenv("GALLIUM_DRIVER", "d3d12", 0);
++}
++
+ std::unique_ptr<EglContext> EglContext::create(wl_display* display)
+ {
++    preferWslGpu();
+     std::unique_ptr<EglContext> context(new EglContext);
+     if (!context->initialize(display))
+         return nullptr;
+@@ -69,6 +80,7 @@ std::unique_ptr<EglContext> EglContext::create(wl_display* display)
+ 
+ std::unique_ptr<EglContext> EglContext::createInBackground(wl_display* display)
+ {
++    preferWslGpu();
+     std::unique_ptr<EglContext> context(new EglContext);
+     EglContext* self = context.get();
+     self->m_initializer = std::thread([self, display] {
