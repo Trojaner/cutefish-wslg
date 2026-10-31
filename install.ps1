@@ -103,9 +103,10 @@ function Write-Step([string] $Message) {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-# Runs wsl.exe with UTF-8 output; returns its output lines, or throws.
+# Runs wsl.exe with UTF-8 output; returns its output lines, or throws. A plain
+# function on purpose: it hands every argument, -d included, to wsl.exe as is.
 function Invoke-Wsl {
-    param([Parameter(ValueFromRemainingArguments)] [string[]] $Arguments)
+    $Arguments = @($args | ForEach-Object { $_ })
     $previousEncoding = [Console]::OutputEncoding
     $previousUtf8 = $env:WSL_UTF8
     try {
