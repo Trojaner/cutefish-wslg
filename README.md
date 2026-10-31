@@ -48,6 +48,7 @@ irm https://raw.githubusercontent.com/trojaner/cutefish-wslg/main/install.ps1 | 
 | `-NonInteractive` | `CUTEFISH_WSLG_NONINTERACTIVE=1` | Never prompt |
 | `-SkipWslgConfig` | | Leave `%USERPROFILE%\.wslgconfig` alone |
 | `-NoRestart` | | Do not restart the distribution at the end |
+| `-ShutdownIfNeeded` | | Run `wsl --shutdown` without asking if WSLg restarts without its shared memory (see [Known limitations](#known-limitations)) |
 | `-Repository`, `-Ref` | | Install from another clone, branch or tag |
 
 `Get-Help .\install.ps1 -Full` describes them in full.
@@ -133,7 +134,9 @@ distribution needs them. A distribution created with `-NewDistro` goes with
   `rdp_allocate_shared_memory: Failed to open ... Input/output error` in its
   `/mnt/wslg/weston.log`: WSLg lost its shared memory and its fallback draws
   nothing ([microsoft/WSL#40618](https://github.com/microsoft/WSL/issues/40618)).
-  `wsl --shutdown` brings it back.
+  `wsl --shutdown` brings it back. Restarting one distribution can bring it
+  about, so the installer checks after its restart and offers the shutdown,
+  or runs it with `-ShutdownIfNeeded`.
 - **Software rendering on Ubuntu 26.04.** Its Mesa no longer picks WSL's
   GPU driver on its own, so applications render with llvmpipe; fine for these
   applications. To use the GPU, start them with `GALLIUM_DRIVER=d3d12`, or set

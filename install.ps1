@@ -47,6 +47,11 @@ Leave %USERPROFILE%\.wslgconfig unchanged.
 Do not restart the distribution at the end. WSLg picks up the icons and its
 options only when it restarts.
 
+.PARAMETER ShutdownIfNeeded
+If WSLg comes back from the restart without its shared memory, in which state
+it shows empty windows, run wsl --shutdown without asking. That stops every
+WSL distribution. Without it, a non-interactive run only says so.
+
 .PARAMETER Repository
 Git repository to install from. Default: https://github.com/trojaner/cutefish-wslg.git.
 A local path installs from a local clone.
@@ -80,6 +85,7 @@ param(
     [switch] $NonInteractive = ($env:CUTEFISH_WSLG_NONINTERACTIVE -eq '1'),
     [switch] $SkipWslgConfig,
     [switch] $NoRestart,
+    [switch] $ShutdownIfNeeded,
     [string] $Repository = 'https://github.com/trojaner/cutefish-wslg.git',
     [string] $Ref = 'main'
 )
@@ -358,6 +364,42 @@ function Set-WslgConfig {
     }
 }
 
+# WSLg sometimes comes back from a restart unable to open its shared memory,
+# and then shows every window empty (microsoft/WSL#40618); only restarting
+# all of WSL brings it back.
+function Test-WslgSharedMemory([string] $Name) {
+    $script = @'
+for _ in $(seq 20); do
+  line=$(grep -m 1 'use_gfxredir = ' /mnt/wslg/weston.log 2>/dev/null) && { echo "${line##* }"; exit 0; }
+  sleep 1
+done
+echo unknown
+'@
+    return (Invoke-WslScript -Name $Name -Script $script -Capture | Select-Object -Last 1).Trim()
+}
+
+function Assert-WslgSharedMemory([string] $Name) {
+    $state = Test-WslgSharedMemory $Name
+    if ($state -ne '0') { return }
+    Write-Warning "WSLg restarted without its shared memory, so $Name's windows would stay empty; restarting all of WSL fixes it."
+    $others = @(Invoke-Wsl --list --running --quiet | ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and $_ -ne $Name })
+    $shutdown = $ShutdownIfNeeded
+    if (-not $shutdown -and -not $NonInteractive) {
+        $what = if ($others) { "It also stops $($others -join ', ')." } else { 'No other distribution is running.' }
+        $shutdown = Confirm-Step "Run wsl --shutdown now? $what"
+    }
+    if (-not $shutdown) {
+        Write-Host "  Run 'wsl --shutdown' when convenient; it stops every WSL distribution."
+        return
+    }
+    & wsl.exe --shutdown
+    Write-Host '  Restarted WSL.'
+    if ((Test-WslgSharedMemory $Name) -eq '0') {
+        Write-Warning "WSLg still has no shared memory; see https://github.com/microsoft/WSL/issues/40618"
+    }
+}
+
 function Get-RepositorySource([string] $Name, [string] $Repository) {
     if (Test-Path -LiteralPath $Repository) {
         return 'file://' + (ConvertTo-WslPath $Name (Resolve-Path -LiteralPath $Repository).Path)
@@ -451,6 +493,7 @@ if (-not $NoRestart) {
     if (Confirm-Step "Restart $Distro now, so WSLg picks up the icons and options? Its open windows close.") {
         & wsl.exe --terminate $Distro | Out-Null
         Write-Host "  Restarted $Distro."
+        Assert-WslgSharedMemory $Distro
     }
 }
 
