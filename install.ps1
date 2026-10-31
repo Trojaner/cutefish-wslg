@@ -112,7 +112,19 @@ function Invoke-Wsl {
     try {
         [Console]::OutputEncoding = [Text.Encoding]::UTF8
         $env:WSL_UTF8 = '1'
-        $output = & wsl.exe @Arguments 2>&1 | ForEach-Object { "$_" }
+        # Windows PowerShell turns every stderr line into an error record, which
+        # Stop would throw on; wsl.exe warns there (about .wslconfig, say), so
+        # success is its exit code alone.
+        $ErrorActionPreference = 'Continue'
+        $output = @()
+        foreach ($line in (& wsl.exe @Arguments 2>&1)) {
+            if ($line -is [Management.Automation.ErrorRecord]) {
+                $text = "$line".Trim()
+                if ($text -match '^wsl: ') { Write-Warning $text } elseif ($text) { $output += $text }
+            } else {
+                $output += "$line"
+            }
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "wsl $($Arguments -join ' ') failed ($LASTEXITCODE): $($output -join "`n")"
         }
@@ -271,8 +283,8 @@ echo changed
 }
 
 function Assert-SupportedDistro([string] $Name) {
-    $info = Invoke-Wsl -d $Name -u root --exec sh -c '. /etc/os-release; echo "$ID|${VERSION_ID:-}|$PRETTY_NAME"' |
-        Select-Object -Last 1
+    $script = '. /etc/os-release; printf "%s|%s|%s\n" "$ID" "${VERSION_ID:-}" "$PRETTY_NAME"'
+    $info = Invoke-WslScript -Name $Name -Script $script -Capture | Select-Object -Last 1
     $id, $versionId, $pretty = $info.Trim().Split('|')
     $supported = ($id -eq 'debian' -and $versionId -eq '13') -or
         ($id -eq 'ubuntu' -and $versionId -match '^\d+\.\d+$' -and [version] $versionId -ge [version] '26.04')
