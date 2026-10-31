@@ -421,7 +421,7 @@ function Install-BlurCompanion {
     if (-not $PSCmdlet.ShouldProcess($shortcut, 'Install the blur companion and start it at logon')) { return }
 
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-        Where-Object { $_.CommandLine -and $_.CommandLine.Contains($script) } |
+        Where-Object { $_.CommandLine -and $_.CommandLine.Contains('cutefish-wslg-blur.ps1') } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     Copy-Item -LiteralPath $source -Destination $script -Force
