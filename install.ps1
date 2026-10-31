@@ -217,10 +217,13 @@ function Invoke-WslScript {
     }
 }
 
-function New-CutefishDistro([string] $Name, [string] $User) {
+function New-CutefishDistro {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string] $Name, [string] $User)
     if ((Get-WslDistro) -contains $Name) {
         throw "A distribution named $Name already exists; pick another with -NewDistroName, or install into it with -Distro $Name"
     }
+    if (-not $PSCmdlet.ShouldProcess($Name, 'Create a Debian 13 WSL distribution')) { return }
     Write-Step "Creating the Debian 13 distribution $Name"
     & wsl.exe --install Debian --name $Name --no-launch
     if ($LASTEXITCODE -ne 0) { throw "wsl --install Debian --name $Name failed ($LASTEXITCODE)" }
@@ -306,6 +309,8 @@ function Write-RunningDistroWarning([string] $Name) {
 }
 
 function Set-WslgConfig {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
     $path = Join-Path $env:USERPROFILE '.wslgconfig'
     $lines = New-Object System.Collections.Generic.List[string]
     if (Test-Path -LiteralPath $path) {
@@ -344,7 +349,7 @@ function Set-WslgConfig {
         }
     }
 
-    if ($changed) {
+    if ($changed -and $PSCmdlet.ShouldProcess($path, 'Set the WSLg options')) {
         # WSLg reads values up to the line end, so the file keeps Unix line endings.
         [IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
         Write-Host "  Updated $path; it applies to every WSL distribution as each restarts."
@@ -353,14 +358,14 @@ function Set-WslgConfig {
     }
 }
 
-function Get-RepositorySource([string] $Name) {
+function Get-RepositorySource([string] $Name, [string] $Repository) {
     if (Test-Path -LiteralPath $Repository) {
         return 'file://' + (ConvertTo-WslPath $Name (Resolve-Path -LiteralPath $Repository).Path)
     }
     return $Repository
 }
 
-function Install-Cutefish([string] $Name, [string] $Source) {
+function Install-Cutefish([string] $Name, [string] $Source, [string] $Ref, [string] $Channel) {
     $bootstrap = @'
 set -Eeuo pipefail
 repository="$1" ref="$2" channel="$3"
@@ -440,7 +445,7 @@ if (-not $SkipWslgConfig) {
 }
 
 Write-Step "Building and installing Cutefish in $Distro ($Channel channel)"
-Install-Cutefish -Name $Distro -Source (Get-RepositorySource $Distro)
+Install-Cutefish -Name $Distro -Source (Get-RepositorySource $Distro $Repository) -Ref $Ref -Channel $Channel
 
 if (-not $NoRestart) {
     if (Confirm-Step "Restart $Distro now, so WSLg picks up the icons and options? Its open windows close.") {
